@@ -22,7 +22,7 @@ const int slaveSelectPin = 10;
 
 // PWM pin
 const int pwmPin = 9;
-const int commandPin = 5;
+// const int commandPin = 5;
 
 // Radio pins
 // Deux pin d'interruption pour pas que les signaux de deux cannaux ne se superposent
@@ -35,14 +35,19 @@ volatile unsigned long temps_chB = 0;
 
 //valeur (entre 1000 et 2000)
 int chA_valeur = 0;
-int chB_valeur = 0;
+// int chB_valeur = 0;
 
 //ETAT PRÉCÉDENT DU CANAL (pour gérer 2 canaux sur le même pin d'interruption)
 volatile bool etat_chA = 0;
-volatile bool etat_chB = 0;
+// volatile bool etat_chB = 0;
 
 // Motor command
 long command = 0;
+// Sine amplitude
+const double amplitude = 30;
+
+// Date du dernier affichage
+unsigned long last_print = 0;
 
 // Start connection to the angle sensor.
 AS5X47 as5047d(slaveSelectPin);
@@ -56,7 +61,7 @@ void setup() {
   TCCR1B = 0b00000010;
   pinMode(pwmPin, OUTPUT);
   analogWrite(pwmPin, 127);
-  pinMode(commandPin, OUTPUT);
+  // pinMode(commandPin, OUTPUT);
   //attachInterrupt(digitalPinToInterrupt(pwmPin), ISR_ppm, RISING);
 
   // Interruptions for the radio receiver
@@ -85,17 +90,31 @@ void loop() {
     // Serial.print(" ");
     // Serial.println(chB_valeur);
 
-    // Send motor command
-    command = min(max(map(chA_valeur, 1080, 2000, 128, 255), 128), 255);
-    // Serial.print("Command: ");
-    // Serial.println(command);
+    // Compute motor command
+    long cmd = min(max(map(chA_valeur, 1000, 2000, 128, 255), 128), 255);
+    const double tgt = double(cmd - 128) / 128.;
+    if (chA_valeur >= 1050) {
+      long delta = amplitude * tgt * sin(double(angle) * 2 * PI / 360.);
+      cmd += long(delta);
+    }
+    // For safety
+    command = min(max(cmd, 128), 255);
+    // Send command to motor
     analogWrite(pwmPin, command);
   }
 
-  for (int i = 0; i < SIZE; ++i) {
-    Serial.print(dates[i]);
-    Serial.print(",");
-    Serial.println(angles[i]);
+  // Show speed (from last buffer)
+  const unsigned long now = micros();
+  if (now - last_print >= 5000000) {
+    last_print = now;
+    for (int i = 1; i < SIZE; ++i) {
+      long dtheta = angles[i] - angles[i - 1];
+      if (dtheta > 180) {
+        dtheta -= 360;
+      }
+      unsigned long dt = dates[i] - dates[i-1];
+      Serial.println(1000000 * double(dtheta) / double(dt));
+    }
   }
 
   // Wait before reading again.
@@ -126,8 +145,8 @@ void ISR_RadioA() {
 //   }
 // }
 
-void ISR_ppm() {
-  digitalWrite(commandPin, HIGH);
-  delayMicroseconds(command);
-  digitalWrite(commandPin, LOW);
-}
+// void ISR_ppm() {
+//   digitalWrite(commandPin, HIGH);
+//   delayMicroseconds(command);
+//   digitalWrite(commandPin, LOW);
+// }
